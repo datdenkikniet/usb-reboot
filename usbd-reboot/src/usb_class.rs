@@ -25,11 +25,7 @@ impl<'a, B: UsbBus> RebootClass<'a, B> {
     pub fn should_restart(&mut self) -> bool {
         let mut buf = [0u8; 4];
         match self.read_ep.read(&mut buf) {
-            Ok(size) if size >= 4 => {
-                let value = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
-
-                value == 0xDEADBEEF
-            }
+            Ok(size) if size >= 4 => buf == super::REBOOT_MAGIC,
             _ => false,
         }
     }

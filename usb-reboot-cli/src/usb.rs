@@ -7,18 +7,26 @@ use crate::UsbId;
 pub fn find_reboot_endpoint(
     usb_id: UsbId,
 ) -> Result<(DeviceHandle<GlobalContext>, u8), anyhow::Error> {
-    let UsbId { vid, pid } = usb_id;
+    log::debug!("Iterating USB devices");
 
     let device = rusb::devices()?
         .iter()
         .find(|device| {
             let descriptor = device.device_descriptor().unwrap();
 
-            descriptor.vendor_id() == vid && descriptor.product_id() == pid
+            let id = UsbId {
+                vid: descriptor.vendor_id(),
+                pid: descriptor.product_id(),
+            };
+
+            log::trace!("Checking {id}");
+            id == usb_id
         })
         .ok_or(anyhow::anyhow!(
             "Could not find device with correct VID:PID"
         ))?;
+
+    log::debug!("Found {:?}", device);
 
     let handle = device.open()?;
 
@@ -38,7 +46,18 @@ pub fn find_reboot_endpoint(
                 continue;
             };
 
-            let name = handle.read_string_descriptor(lang, index, Duration::from_millis(500))?;
+            let iface_num = descriptor.interface_number();
+            log::trace!("Checking interface {iface_num}");
+
+            let name = if let Ok(name) =
+                handle.read_string_descriptor(lang, index, Duration::from_millis(500))
+            {
+                name
+            } else {
+                continue;
+            };
+
+            log::trace!("Checking {}", name);
 
             if name == usbd_reboot::USB_INTERFACE_NAME {
                 let endpoint = descriptor
@@ -47,10 +66,12 @@ pub fn find_reboot_endpoint(
                     .ok_or(anyhow::anyhow!("Could not read endpoint descriptors"))?
                     .address();
 
+                log::debug!("Found endpoint {name} (interface #{iface_num}, endpoint #{endpoint})");
+
                 return Ok((handle, endpoint));
             }
         }
     }
 
-    Err(anyhow::anyhow!("Could not find USB Bulk reboot endpoint"))
+    Err(anyhow::anyhow!("Could not find USB Reboot Bulk endpoint"))
 }

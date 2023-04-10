@@ -4,13 +4,21 @@ use usb::find_reboot_endpoint;
 
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
+use usbd_reboot::REBOOT_MAGIC;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct UsbId {
     vid: u16,
     pid: u16,
 }
 
-fn bruh(input: &str) -> Result<UsbId, String> {
+impl core::fmt::Display for UsbId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:04X}:{:04X}", self.vid, self.pid)
+    }
+}
+
+fn parse_usb_id(input: &str) -> Result<UsbId, String> {
     let mut parts = input.split(':');
 
     if parts.clone().count() != 2 {
@@ -42,24 +50,32 @@ fn bruh(input: &str) -> Result<UsbId, String> {
 pub struct Options {
     /// The USB ID (given as `VID:PID`, with PID and VID as hex values)
     /// on which the RP2040 Reboot Interface present.
-    #[clap(value_parser = bruh)]
+    #[clap(value_parser = parse_usb_id)]
     pub usb_id: UsbId,
 }
 
 fn main() -> anyhow::Result<()> {
+    pretty_env_logger::formatted_builder()
+        .parse_filters(&std::env::var("RUST_LOG").unwrap_or("info".into()))
+        .init();
+
     let opts = Options::parse();
 
-    let (handle, endpoint) = find_reboot_endpoint(opts.usb_id)?;
+    let usb_id = opts.usb_id;
+
+    log::trace!("Parsed USB ID {usb_id}");
+
+    log::info!("Finding USB Device");
+
+    let (handle, endpoint) = find_reboot_endpoint(usb_id)?;
+
+    log::info!("Writing USB Reboot Trigger");
 
     handle
-        .write_bulk(
-            endpoint,
-            &0xDEAD_BEEFu32.to_be_bytes(),
-            Duration::from_millis(500),
-        )
+        .write_bulk(endpoint, &REBOOT_MAGIC, Duration::from_millis(500))
         .unwrap();
 
-    println!("Wrote restart command");
+    log::info!("Wrote restart command");
 
     Ok(())
 }
